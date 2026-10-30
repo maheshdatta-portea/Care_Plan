@@ -18,17 +18,31 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  // Temporary kill-switch. Set ADMIN_LOGIN_DISABLED=true on Vercel to close
+  // sign-in for everyone (for example during an active attack), unset to reopen.
+  if (process.env.ADMIN_LOGIN_DISABLED === "true") {
+    return NextResponse.json(
+      { error: "Sign-in is temporarily disabled. Please try again later." },
+      { status: 503 },
+    );
+  }
+
   const body = await request.json().catch(() => ({}));
-  const { email, password } = body as { email?: string; password?: string };
+  const { email, password } = body as { email?: unknown; password?: unknown };
+  // Coerce to strings before any string work. Attackers send arrays/objects as
+  // email/password to crash the handler, so never call string methods on raw
+  // input.
+  const emailStr = typeof email === "string" ? email : "";
+  const passwordStr = typeof password === "string" ? password : "";
 
   const ip = extractClientIp(request) ?? "unknown";
   const ua = request.headers.get("user-agent")?.slice(0, 200) ?? undefined;
   // Rate-limit key. Email-based makes brute force slower per account;
   // IP-based catches credential stuffing. We combine both.
-  const rateKey = `${ip}|${(email ?? "").toLowerCase()}`;
+  const rateKey = `${ip}|${emailStr.toLowerCase()}`;
   const ts = new Date().toISOString();
 
-  if (!password || typeof password !== "string") {
+  if (!passwordStr) {
     return NextResponse.json(
       { error: "Email and password are required." },
       { status: 400 },
@@ -39,7 +53,7 @@ export async function POST(request: NextRequest) {
     audit({
       type: "auth.login.rate_limited",
       ts,
-      email: typeof email === "string" ? email : undefined,
+      email: emailStr || undefined,
       ip,
       user_agent: ua,
     });
@@ -52,17 +66,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await attemptLogin(
-    typeof email === "string" ? email : undefined,
-    password,
-  );
+  const result = await attemptLogin(emailStr || undefined, passwordStr);
 
   if (!result.ok) {
     recordLoginAttempt(rateKey, false);
     audit({
       type: "auth.login.failure",
       ts,
-      email: typeof email === "string" ? email : undefined,
+      email: emailStr || undefined,
       ip,
       user_agent: ua,
       reason: result.reason,
