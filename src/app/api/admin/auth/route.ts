@@ -14,13 +14,15 @@ import {
   SESSION_TTL_SECONDS,
   signSession,
 } from "@/lib/admin-auth";
+import { isAdminLoginDisabled } from "@/lib/flags";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  // Temporary kill-switch. Set ADMIN_LOGIN_DISABLED=true on Vercel to close
-  // sign-in for everyone (for example during an active attack), unset to reopen.
-  if (process.env.ADMIN_LOGIN_DISABLED === "true") {
+  // Temporary kill-switch. Flip the Edge Config key `admin_login_disabled` to
+  // true in the Vercel dashboard (instant, no redeploy) to close sign-in, or set
+  // it back to false to reopen. ADMIN_LOGIN_DISABLED=true also works as a backup.
+  if (await isAdminLoginDisabled()) {
     return NextResponse.json(
       { error: "Sign-in is temporarily disabled. Please try again later." },
       { status: 503 },
