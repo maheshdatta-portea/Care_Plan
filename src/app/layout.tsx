@@ -3,6 +3,7 @@ import Script from "next/script";
 
 import { GoogleAdsProvider } from "@/components/google-ads-provider";
 import { LeadSourceFlag } from "@/components/lead-source-flag";
+import { RecaptchaProvider } from "@/components/recaptcha-provider";
 import { PageViewTracker } from "@/components/page-view-tracker";
 import { ScrollTracker } from "@/components/scroll-tracker";
 import { TrackingProvider } from "@/components/tracking-provider";
@@ -118,6 +119,7 @@ export default function RootLayout({
     <html lang="en-IN">
       <body>
         <GoogleAdsProvider />
+        <RecaptchaProvider />
         <LeadSourceFlag />
         <TrackingProvider />
         <PageViewTracker />

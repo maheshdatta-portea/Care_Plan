@@ -10,11 +10,13 @@ import {
   getLeadById,
   markLeadRouted,
   maskPhone,
+  countRecentByIpHash,
   type LeadAttribution,
 } from "@/lib/lead-store";
 import { classifyLeadSource } from "@/lib/lead-source";
 import { forwardLeadToSales } from "@/lib/forward-to-sales";
 import { notifyNewLead } from "@/lib/notify";
+import { clientIp, ipHashOf, verifyRecaptcha } from "@/lib/intake-guard";
 
 type IntakePayload = {
   full_name?: string;
@@ -35,6 +37,8 @@ type IntakePayload = {
   // on the final submit so we patch that same row instead of creating a dupe.
   lead_id?: string;
   partial?: boolean;
+  // reCAPTCHA v3 token from the browser. Verified server-side when keys are set.
+  recaptcha_token?: string;
 };
 
 // Shown in the dashboard for fields the visitor has not reached yet on a
@@ -115,6 +119,51 @@ export async function POST(request: Request) {
     body = (await request.json()) as IntakePayload;
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  // --- Anti-abuse guard (runs on every submission, partial or final). ---
+  const ip = clientIp(request);
+
+  // 1. reCAPTCHA v3. Only enforced once RECAPTCHA_SECRET_KEY is set; until then
+  //    this is a no-op, so the form keeps working. A real browser on our page
+  //    produces a valid token; scripted floods from any IP cannot, so they are
+  //    rejected here.
+  const recaptcha = await verifyRecaptcha(body.recaptcha_token, ip);
+  if (!recaptcha.ok) {
+    // eslint-disable-next-line no-console
+    console.warn("[intake] reCAPTCHA rejected", recaptcha.reason);
+    return NextResponse.json(
+      {
+        error:
+          "We could not verify your submission. Please reload the page and try again, or call us.",
+      },
+      { status: 403 },
+    );
+  }
+
+  // 2. Per-IP rate limit (coarse backup). Caps bulk submissions from one IP in a
+  //    short window. Never blocks a request if the count query itself fails.
+  const ipHash = ipHashOf(ip);
+  const rlMax = Number(process.env.INTAKE_RATE_LIMIT_MAX || "12");
+  const rlWindowMin = Number(process.env.INTAKE_RATE_LIMIT_WINDOW_MIN || "10");
+  if (ip !== "unknown") {
+    try {
+      const sinceIso = new Date(Date.now() - rlWindowMin * 60_000).toISOString();
+      const recent = await countRecentByIpHash(ipHash, sinceIso);
+      if (recent >= rlMax) {
+        // eslint-disable-next-line no-console
+        console.warn("[intake] rate limited", { recent, rlMax });
+        return NextResponse.json(
+          {
+            error:
+              "Too many requests from your network. Please try again in a few minutes, or call us.",
+          },
+          { status: 429 },
+        );
+      }
+    } catch {
+      /* rate-limit check is best-effort; do not block real users on a DB hiccup */
+    }
   }
 
   const partial = body.partial === true;
@@ -253,6 +302,7 @@ export async function POST(request: Request) {
       consent_given: body.consent_given ?? (partial ? false : true),
       status: "new",
       attribution: body.attribution ?? {},
+      ip_hash: ipHash,
     });
   } catch (err) {
     // eslint-disable-next-line no-console

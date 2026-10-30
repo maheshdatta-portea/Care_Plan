@@ -17,6 +17,7 @@ import {
 import type { VerticalConfig } from "@/data/verticals";
 import { getIntakeApiUrl } from "@/lib/api";
 import { readAttribution } from "@/lib/utm";
+import { getRecaptchaToken } from "@/lib/recaptcha";
 
 type FlowPhase = "typing" | "awaiting-input" | "consent" | "submitting" | "submitted";
 
@@ -427,6 +428,7 @@ export function IntakeChatbot({ vertical }: { vertical: VerticalConfig }) {
     let cancelled = false;
     const run = async () => {
       try {
+        const recaptchaToken = await getRecaptchaToken("intake_partial");
         const response = await fetch(getIntakeApiUrl(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -443,6 +445,7 @@ export function IntakeChatbot({ vertical }: { vertical: VerticalConfig }) {
             relationship: state.fields.relationship || undefined,
             consent_given: state.consentGiven,
             attribution: readAttribution(),
+            recaptcha_token: recaptchaToken,
           }),
         });
         const result = (await response.json()) as { patient_id?: string; error?: string };
@@ -478,6 +481,7 @@ export function IntakeChatbot({ vertical }: { vertical: VerticalConfig }) {
     let cancelled = false;
     const run = async () => {
       try {
+        const recaptchaToken = await getRecaptchaToken("intake_submit");
         const response = await fetch(getIntakeApiUrl(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -497,6 +501,7 @@ export function IntakeChatbot({ vertical }: { vertical: VerticalConfig }) {
             relationship: state.fields.relationship,
             consent_given: true,
             attribution: readAttribution(),
+            recaptcha_token: recaptchaToken,
           }),
         });
         const result = (await response.json()) as {

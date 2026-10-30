@@ -197,6 +197,19 @@ export async function getLeadById(id: string): Promise<LeadRecord | null> {
   return rows[0] ? rowToLead(rows[0]) : null;
 }
 
+// How many leads this IP (hashed) created since `sinceIso`. Used by the intake
+// endpoint for per-IP rate limiting.
+export async function countRecentByIpHash(
+  ipHash: string,
+  sinceIso: string,
+): Promise<number> {
+  const rows = await query<{ c: number }>(
+    `SELECT count(*)::int AS c FROM leads WHERE ip_hash = $1 AND created_at >= $2`,
+    [ipHash, sinceIso],
+  );
+  return rows[0]?.c ?? 0;
+}
+
 // --- Updating --------------------------------------------------------------
 
 export type LeadUpdate = {
